@@ -1,0 +1,19 @@
+[project]
+name = "pygit"
+version = "0.1.0"
+description = "Default template for PDM package"
+authors = [
+    {name = "GuGuMur", email = "2221533105@qq.com"},
+]
+dependencies = ["click>=8.2.1", "loguru>=0.7.3", "rich>=14.1.0"]
+requires-python = "==3.13.*"
+readme = "README.md"
+license = {text = "MIT"}
+
+
+[tool.pdm]
+distribution = false
+
+
+[tool.pdm.scripts]
+ugit = {call = "src.__init__:cli"}

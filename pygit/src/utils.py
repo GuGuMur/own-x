@@ -1,0 +1,56 @@
+from pathlib import Path
+from typing import Any, Generator
+from . import data
+
+def is_ignored(path):
+    """Check if path should be ignored"""
+    path_obj = Path(path)
+    return ".ugit" in path_obj.parts
+
+
+def _iter_tree_entries(oid) -> Generator[tuple[str, str, str], Any, None]:
+    if not oid:
+        return
+    tree = data.get_object(oid, "tree")
+    for entry in tree.decode().splitlines():
+        type_, oid, name = entry.split(" ", 2)
+        yield type_, oid, name
+
+
+def get_tree(oid, base_path="") -> dict:
+    result = {}
+    for type_, oid, name in _iter_tree_entries(oid):
+        assert "/" not in name
+        assert name not in ("..", ".")
+        path = base_path + name
+        if type_ == "blob":
+            result[path] = oid
+        elif type_ == "tree":
+            result.update(get_tree(oid, f"{path}/"))
+        else:
+            assert False, f"Unknown tree entry {type_}"
+    return result
+
+
+
+
+def read_tree(tree_oid):
+    for path, oid in get_tree(tree_oid, base_path="./").items():
+        file_path = Path(path)
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        file_path.write_bytes(data.get_object(oid))
+
+def _empty_current_directory():
+    for path in sorted(Path(".").rglob("*"), key=lambda p: len(p.parts), reverse=True):
+        if is_ignored(path):
+            continue
+
+        if path.is_file(follow_symlinks=False):
+            if not is_ignored(path):
+                path.unlink()
+        elif path.is_dir(follow_symlinks=False):
+            try:
+                path.rmdir()
+            except (OSError, FileNotFoundError):
+                # 目录不为空或已被删除，忽略错误
+                pass
