@@ -1,6 +1,8 @@
 from pathlib import Path
+import textwrap
 from typing import Any, Generator
 from . import data
+
 
 def is_ignored(path):
     """Check if path should be ignored"""
@@ -32,13 +34,12 @@ def get_tree(oid, base_path="") -> dict:
     return result
 
 
-
-
 def read_tree(tree_oid):
     for path, oid in get_tree(tree_oid, base_path="./").items():
         file_path = Path(path)
         file_path.parent.mkdir(parents=True, exist_ok=True)
         file_path.write_bytes(data.get_object(oid))
+
 
 def _empty_current_directory():
     for path in sorted(Path(".").rglob("*"), key=lambda p: len(p.parts), reverse=True):
@@ -52,5 +53,11 @@ def _empty_current_directory():
             try:
                 path.rmdir()
             except (OSError, FileNotFoundError):
-                # 目录不为空或已被删除，忽略错误
                 pass
+
+
+def _print_commit(oid: str, commit: str, refs: str = None):
+    refs_str = f" ({', '.join(refs)})" if refs else ""
+    print(f"commit {oid}{refs_str}\n")
+    print(textwrap.indent(commit.message, "    "))
+    print("")
