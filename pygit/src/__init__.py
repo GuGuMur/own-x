@@ -4,8 +4,9 @@ import click
 import sys
 from pathlib import Path
 from loguru import logger
+from typing import NoReturn
 
-from . import base, data, utils, diff
+from . import base, data, utils, diff, remote
 
 
 @click.group()
@@ -13,8 +14,13 @@ def cli():
     pass
 
 
+def main():
+    with data.change_git_dir("."):
+        cli()
+
+
 @cli.command("init")
-def init():
+def init() -> NoReturn:
     """Initialize command"""
     git_path = Path.cwd() / data.GIT_DIR
     base.init(git_path)
@@ -56,14 +62,16 @@ def commit(message: str = "default commit message"):
 
 
 @cli.command("log")
-@click.argument("oid", required=False, default="@")
-def log(oid: str = "@"):
+@click.argument("oid", required=False, default="HEAD")
+def log(oid: str = "HEAD"):
     """Display history of commits"""
+    # with data.change_git_dir():
     refs: defaultdict[str, list[str]] = defaultdict(list)
     for refname, ref in data.iter_refs():
-        refs[ref.value].append(refname)
-    oid = oid or data.get_ref(ref="HEAD")
-    for oid in base.iter_commits_and_parents({oid}):
+        refs.setdefault(ref.value, []).append(refname)
+
+    # oid = oid or data.get_ref(ref="HEAD")
+    for oid in base.iter_commits_and_parents(refs.keys()):
         commit = base.get_commit(oid)
         utils._print_commit(oid, commit, refs.get(oid))
         # oid = commit.parent
@@ -113,9 +121,8 @@ def k():
     for oid in base.iter_commits_and_parents(oids):
         commit = base.get_commit(oid)
         dot += f'"{oid}" [shape=box style=filled label="{oid[:10]}"]\n'
-        if commit.parent:
-            dot += f'"{oid}" -> "{commit.parent}"\n'
-
+        for parent in commit.parents:
+            dot += f'"{oid}" -> "{parent}"\n'
     dot += "}"
     print(dot)
 
@@ -150,13 +157,22 @@ def status():
     else:
         print(f"HEAD detached at {HEAD[:10]}")
 
+    MERGE_HEAD = data.get_ref("MERGE_HEAD").value
+    if MERGE_HEAD:
+        print(f"Merging with {MERGE_HEAD[:10]}")
+
     print("\nChanges to be committed:\n")
     HEAD_tree = HEAD and base.get_commit(HEAD).tree
     for path, action in diff.iter_changed_files(
-        utils.get_tree(HEAD_tree), base.get_working_tree()
+        utils.get_tree(HEAD_tree), base.get_index_tree()
     ):
         print(f"{action:>12}: {path}")
 
+    print("\nChanges not staged for commit:\n")
+    for path, action in diff.iter_changed_files(
+        base.get_index_tree(), base.get_working_tree()
+    ):
+        print(f"{action:>12}: {path}")
 @cli.command("reset")
 @click.argument("commmit")
 def reset(commmit: str):
@@ -171,8 +187,9 @@ def show(oid: str = "@"):
     """Show commit details"""
     commit = base.get_commit(oid)
     parent_tree = None
-    if commit.parent:
-        parent_tree = base.get_commit(commit.parent).tree
+    if commit.parents:
+        parent_tree = base.get_commit(commit.parents[0]).tree
+
     utils._print_commit(oid, commit)
     result = diff.diff_trees(utils.get_tree(parent_tree), utils.get_tree(commit.tree))
     # print(result)
@@ -181,14 +198,26 @@ def show(oid: str = "@"):
 
 
 @cli.command("diff")
+@click.option("--cached", is_flag=True, help="Show staged changes")
 @click.argument("commit", required=False)
-def diff_cmd(commit: str = None):
-    """Show changes between commit and working directory"""
-    tree = commit and base.get_commit(commit).tree
+def diff_cmd(cached: bool, commit: str = None):
+    """Show changes between working tree, index, and commits"""
+    if commit:
+        oid = base.get_oid(commit)
+        tree_from = utils.get_tree(base.get_commit(oid).tree)
+    elif cached:
+        oid = base.get_oid("@")
+        tree_from = utils.get_tree(base.get_commit(oid).tree)
+    else:
+        tree_from = base.get_index_tree()
 
-    result = diff.diff_trees(utils.get_tree(tree), base.get_working_tree())
-    sys.stdout.flush()
-    sys.stdout.buffer.write(result)
+    if cached:
+        tree_to = base.get_index_tree()
+    else:
+        tree_to = base.get_working_tree()
+
+    result = diff.diff_trees(tree_from, tree_to)
+    click.echo(result)
 
 @cli.command("merge")
 @click.argument("commit", required=True)
@@ -196,3 +225,30 @@ def merge_cmd(commit: str):
     """Merge a branch into the current branch"""
     base.merge(commit)
     click.echo(f"Merged branch '{commit}' into current branch")
+
+
+@cli.command("merge-base")
+@click.argument("commit1")
+@click.argument("commit2")
+def merge_base_cmd(commit1: str, commit2: str):
+    """Find the common ancestor of two commits"""
+    merge_base_oid = base.get_merge_base(commit1, commit2)
+    if merge_base_oid:
+        click.echo(merge_base_oid)
+
+@cli.command("fetch")
+@click.argument("remote_url")
+def fetch(remote_url: str):
+    """Fetch objects and refs from a remote repository"""
+    remote.fetch(remote_url)
+
+@cli.command("push")
+@click.argument("remote_url")
+@click.argument("branch_name", required=False)
+def push(remote_url: str, branch_name: str = None):
+    remote.push(remote_url, f"refs/heads/{branch_name}")
+
+@cli.command("add")
+@click.argument("files", nargs=-1, required=True)
+def add(files):
+    base.add(files)

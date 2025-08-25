@@ -1,7 +1,9 @@
+import os
 from pathlib import Path
 import textwrap
 from typing import Any, Generator
-from . import data
+
+from . import data, diff
 
 
 def is_ignored(path):
@@ -34,12 +36,31 @@ def get_tree(oid, base_path="") -> dict:
     return result
 
 
-def read_tree(tree_oid):
-    for path, oid in get_tree(tree_oid, base_path="./").items():
-        file_path = Path(path)
-        file_path.parent.mkdir(parents=True, exist_ok=True)
-        file_path.write_bytes(data.get_object(oid))
+def read_tree(tree_oid, update_working=False):
+    with data.get_index() as index:
+        index.clear()
+        index.update(get_tree(tree_oid))
 
+        if update_working:
+            _checkout_index(index)
+
+
+def read_tree_merged(t_base, t_HEAD, t_other, update_working=False):
+    with data.get_index() as index:
+        index.clear()
+        index.update(
+            diff.merge_trees(get_tree(t_base), get_tree(t_HEAD), get_tree(t_other))
+        )
+
+        if update_working:
+            _checkout_index(index)
+
+def _checkout_index(index):
+    _empty_current_directory()
+    for path, oid in index.items():
+        os.makedirs(os.path.dirname(f"./{path}"), exist_ok=True)
+        with open(path, "wb") as f:
+            f.write(data.get_object(oid, "blob"))
 
 def _empty_current_directory():
     for path in sorted(Path(".").rglob("*"), key=lambda p: len(p.parts), reverse=True):

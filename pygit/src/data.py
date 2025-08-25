@@ -1,11 +1,23 @@
 import hashlib
 from pathlib import Path
+import ujson as json
+import shutil
 from collections import namedtuple
-from typing import Iterator, Tuple, TypeAlias
+from typing import Any, Generator, Iterator, Tuple, TypeAlias
+from contextlib import contextmanager
 
-GIT_DIR = ".ugit"
+# GIT_DIR = ".ugit"
+GIT_DIR = None
 
-COMMIT = namedtuple("Commit", ["tree", "parent", "message"])
+@contextmanager
+def change_git_dir(new_dir: str = ".") -> Generator[None, Any, None]:
+    global GIT_DIR
+    old_dir = GIT_DIR
+    GIT_DIR = f"{new_dir}/.ugit"
+    yield
+    GIT_DIR = old_dir
+
+COMMIT = namedtuple("Commit", ["tree", "parents", "message"])
 CommitType: TypeAlias = COMMIT
 
 RefValue = namedtuple("RefValue", ["symbolic", "value"])
@@ -37,7 +49,7 @@ def update_ref(
     ref = _get_ref_internal(ref, deref=deref)[0]
     assert value.value
     if value.symbolic:
-        value = f'ref: {value.value}'
+        value = f"ref: {value.value}"
     else:
         value = value.value
     head_path = Path(GIT_DIR) / ref
@@ -54,26 +66,60 @@ def _get_ref_internal(ref: str, deref: bool = True) -> Tuple[str, RefValueType]:
     value = None
     if ref_path.is_file():
         value = ref_path.read_text().strip()
-    if value and value.startswith("ref:"):
-        # ref: <refname> -> refname
-        return get_ref(value.split(":", 1)[1].strip())
 
     symbolic = bool(value) and value.startswith("ref:")
     if symbolic:
         value = value.split(":", 1)[1].strip()
         if deref:
-            return _get_ref_internal(value, deref=deref)
+            return _get_ref_internal(value, deref=True)
 
     return ref, RefValue(symbolic=symbolic, value=value)
 
 
-def iter_refs(deref: bool = True) -> Iterator[Tuple[str, RefValueType]]:
-    # Fisrt yield HEAD
-    yield "HEAD", get_ref("HEAD")
-    # Then yield all refs in refs/
-    refs_dir = Path(GIT_DIR) / "refs"
+def iter_refs(
+    prefix: str = "", deref: bool = True
+) -> Iterator[Tuple[str, RefValueType]]:
+    refs = ["HEAD", "MERGE_HEAD"]
+    git_dir_path = Path(GIT_DIR)
+
+    refs_dir = git_dir_path / "refs"
     if refs_dir.exists():
         for ref_file in refs_dir.rglob("*"):
             if ref_file.is_file():
-                refname = str(ref_file.relative_to(Path(GIT_DIR)))
-                yield refname, get_ref(refname, deref=deref)
+                # 获取相对于 GIT_DIR 的路径
+                refname = str(ref_file.relative_to(git_dir_path))
+                refs.append(refname)
+
+    for refname in refs:
+        if not refname.startswith(prefix):
+            continue
+
+        ref = get_ref(refname, deref=deref)
+        if ref.value:
+            yield refname, ref
+
+
+def object_exists(oid):
+    return Path(f"{GIT_DIR}/objects/{oid}").is_file()
+
+
+def fetch_object_if_missing(oid, remote_git_dir):
+    if object_exists(oid):
+        return
+    remote_git_dir += "/.ugit"
+    shutil.copy(f"{remote_git_dir}/objects/{oid}", f"{GIT_DIR}/objects/{oid}")
+
+
+def push_object(oid, remote_git_dir):
+    remote_git_dir += "/.ugit"
+    shutil.copy(f"{GIT_DIR}/objects/{oid}", f"{remote_git_dir}/objects/{oid}")
+
+@contextmanager
+def get_index():
+    index = {}
+    entry = Path(f"{GIT_DIR}/index")
+    if entry.is_file():
+        index = json.laod(entry.read_text())
+    yield index
+
+    entry.write_text(json.dumps(index))
