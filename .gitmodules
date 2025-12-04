@@ -1,0 +1,3 @@
+[submodule "cpp-2d-game-engine/include/stb"]
+	path = cpp-2d-game-engine/include/stb
+	url = https://github.com/nothings/stb.git
