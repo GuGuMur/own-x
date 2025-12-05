@@ -2,6 +2,7 @@ add_executable(cpp_2d_game_engine
         main.cpp
         glad.c
         stb.cpp
+        miniz.c
 )
 
 target_link_libraries(cpp_2d_game_engine PRIVATE SDL2::SDL2)
