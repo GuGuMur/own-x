@@ -1,5 +1,6 @@
 #include <SDL.h>
 #include <cstdio>
+#include <string>
 #include <glad/glad.h>
 #include <vector>
 #include <stb/stb_image.h>
@@ -7,6 +8,13 @@
 // #define STB_VORBIS_HEADER_ONLY
 #include <stb/stb_vorbis.c>
 #include <miniz.h>
+#undef L // conflict between lua and stb_vorbis
+#undef R
+extern "C" {
+#include <lua5.4/lua.h>
+#include <lua5.4/lauxlib.h>
+#include <lua5.4/lualib.h>
+}
 
 static int winW = 640;
 static int winH = 480;
@@ -14,8 +22,9 @@ static int winH = 480;
 namespace {
     class Zip {
         mz_zip_archive zip{};
+
     public:
-        Zip(const char* name) {
+        Zip(const char *name) {
             memset(&zip, 0, sizeof(zip));
             mz_bool ret = mz_zip_reader_init_file(&zip, name, 0);
             if (ret == MZ_FALSE) {
@@ -23,20 +32,22 @@ namespace {
                 exit(-1);
             }
         }
+
         ~Zip() {
             mz_zip_reader_end(&zip);
         }
 
-        void* open(const char* name, size_t & size) {
+        void *open(const char *name, size_t &size) {
             return mz_zip_reader_extract_file_to_heap(&zip, name, &size, 0);
         }
 
-        void close(void* p) {
+        void close(void *p) {
             mz_free(p);
         }
-
     };
-    Zip* gZip;
+
+    Zip *gZip;
+
     class Shader {
         GLuint vsID;
         GLuint fsID;
@@ -172,13 +183,12 @@ namespace {
             stbi_uc *p = stbi_load(name, &w, &h, &c, 4); // r g b a 四个通道
             if (p == nullptr) {
                 size_t size;
-                void* data = gZip->open(name, size);
+                void *data = gZip->open(name, size);
                 if (data == nullptr) {
                     printf("[ERROR] failed to load %s\n", name);
                     exit(-1);
-                }
-                else {
-                    p = stbi_load_from_memory(reinterpret_cast<stbi_uc*>(data), static_cast<int>(size), &w, &h, &c, 4);
+                } else {
+                    p = stbi_load_from_memory(reinterpret_cast<stbi_uc *>(data), static_cast<int>(size), &w, &h, &c, 4);
                     gZip->close(data);
                 }
             }
@@ -229,7 +239,7 @@ namespace {
             FILE *f = fopen(name, "rb");
             if (f == nullptr) {
                 size_t size;
-                void* data = gZip->open(name, size);
+                void *data = gZip->open(name, size);
                 if (data == nullptr) {
                     printf("failed to open font file: %s\n", name);
                     exit(-1);
@@ -237,15 +247,13 @@ namespace {
                 font.resize(size);
                 memcpy(font.data(), data, size);
                 gZip->close(data);
-            }
-            else {
-
-            fseek(f, 0, SEEK_END);
-            long size = ftell(f);
-            fseek(f, 0, SEEK_SET);
-            font.resize(size);
-            fread(&font[0], 1, size, f);
-            fclose(f);
+            } else {
+                fseek(f, 0, SEEK_END);
+                long size = ftell(f);
+                fseek(f, 0, SEEK_SET);
+                font.resize(size);
+                fread(&font[0], 1, size, f);
+                fclose(f);
             }
 
             stbtt_InitFont(&info, font.data(), 0);
@@ -268,7 +276,7 @@ namespace {
             stb_vorbis *vorbis = nullptr;
             int loop = 0;
             int pause = 0;
-            void* data = nullptr;
+            void *data = nullptr;
         };
 
         static constexpr int MAX_AUDIO = 5;
@@ -300,7 +308,7 @@ namespace {
         ~Audio() {
             SDL_PauseAudioDevice(audioDeviceID, 1);
             SDL_CloseAudioDevice(audioDeviceID);
-            for (const auto &item : vorbis) {
+            for (const auto &item: vorbis) {
                 stb_vorbis_close(item.vorbis);
                 gZip->close(item.data);
             }
@@ -315,24 +323,27 @@ namespace {
             vorbis[idx].vorbis = stb_vorbis_open_filename(name, &error, nullptr);
             if (vorbis[idx].vorbis == nullptr) {
                 size_t size;
-                void* data = gZip->open(name, size);
+                void *data = gZip->open(name, size);
                 if (data == nullptr) {
                     printf("failed to open file: %s\n", name);
                     exit(-1);
                 }
                 vorbis[idx].data = data;
-                vorbis[idx].vorbis = stb_vorbis_open_memory(reinterpret_cast<const unsigned char*>(data), static_cast<int>(size), &error, nullptr);
+                vorbis[idx].vorbis = stb_vorbis_open_memory(reinterpret_cast<const unsigned char *>(data),
+                                                            static_cast<int>(size), &error, nullptr);
             }
             vorbis[idx].loop = loop;
             vorbis[idx].pause = 0;
             return idx;
             // SDL_PauseAudioDevice(audioDeviceID, 0);
         }
+
         void close(const int idx) {
             stb_vorbis_close(vorbis[idx].vorbis);
             gZip->close(vorbis[idx].data);
             vorbis[idx] = Vorbis();
         }
+
         void play() {
             Uint32 queuedAudioSize = SDL_GetQueuedAudioSize(audioDeviceID);
             if (queuedAudioSize == 0) {
@@ -369,12 +380,55 @@ namespace {
                     }
                     samples_mix[k] = static_cast<short>(sample);
                 }
-                SDL_QueueAudio(audioDeviceID, samples_mix.data(), static_cast<Uint32>(samples_mix.size()) * sizeof(short));
+                SDL_QueueAudio(audioDeviceID, samples_mix.data(),
+                               static_cast<Uint32>(samples_mix.size()) * sizeof(short));
             }
         }
 
         void pause(int pause) const {
             SDL_PauseAudioDevice(audioDeviceID, pause);
+        }
+    };
+
+    int lua_error_callback(lua_State *L) {
+        const char *error = lua_tostring(L, 1);
+        luaL_traceback(L, L, error, 0);
+        return 1;
+    }
+
+    class Lua {
+        lua_State *L;
+        void init() {
+            lua_pushinteger(L, winW);
+            lua_setglobal(L, "winW");
+            lua_pushinteger(L, winH);
+            lua_setglobal(L, "winH");
+        }
+    public:
+        Lua() {
+            L = luaL_newstate();
+            luaL_openlibs(L);
+
+            init();
+            lua_pushcfunction(L, lua_error_callback);
+            int ret = luaL_loadstring(L, "require 'main'");
+            if (ret == 0) {
+                ret = lua_pcall(L, 0, 0, -2);
+            }
+            if (ret) {
+                printf("%s\n", lua_tostring(L, -1));
+            }
+        }
+        ~Lua() {
+            lua_close(L);
+        }
+
+        void draw() {
+            lua_getglobal(L, "draw");
+            int ret = lua_pcall(L, 0, 0, -2);
+            if (ret) {
+                printf("%s\n", lua_tostring(L, -1));
+            }
         }
     };
 }
@@ -458,9 +512,9 @@ int main(int argc, char **argv) {
     const Buffer bufferPoint(std::vector<float>{50, 100,});
     const Buffer bufferLine(std::vector<float>{0, 0, static_cast<float>(winW) - 1, static_cast<float>(winH) - 1});
 
-    Texture texture("../data/uvchecker.png");
+    Texture texture("data/uvchecker.png");
 
-    Font font("../data/AlibabaPuHuiTi-3-55-Regular.ttf");
+    Font font("data/AlibabaPuHuiTi-3-55-Regular.ttf");
     int x0, y0, w, h;
     std::vector<unsigned char> bitmap(w * h);
     font.makeBitmap(*L"啊", 50, bitmap, x0, y0, w, h);
@@ -535,9 +589,11 @@ int main(int argc, char **argv) {
         SDL_GL_SwapWindow(window);
     };
     Audio audio;
-    audio.open("../data/MeetingTheStars.ogg");
-    audio.open("../data/SadSoul.ogg");
-    audio.pause(0);
+    audio.open("data/MeetingTheStars.ogg");
+    audio.open("data/SadSoul.ogg");
+    // audio.pause(0);
+
+    Lua lua;
 
     int done = 0;
     while (!done) {
