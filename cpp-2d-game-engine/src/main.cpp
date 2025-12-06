@@ -396,14 +396,81 @@ namespace {
         return 1;
     }
 
+    int lua_glClearColor(lua_State *L) {
+        glClearColor(static_cast<GLfloat>(luaL_checknumber(L, 1)),
+                     static_cast<GLfloat>(luaL_checknumber(L, 2)),
+                     static_cast<GLfloat>(luaL_checknumber(L, 3)),
+                     static_cast<GLfloat>(luaL_checknumber(L, 4)));
+        return 0;
+    }
+
+    int lua_glClear(lua_State *L) {
+        glClear(static_cast<GLbitfield>(luaL_checkinteger(L, 1)));
+        return 0;
+    }
+
+    int lua_glViewport(lua_State *L) {
+        glViewport(static_cast<GLint>(luaL_checkinteger(L, 1)),
+                   static_cast<GLint>(luaL_checkinteger(L, 2)),
+                   static_cast<GLsizei>(luaL_checkinteger(L, 3)),
+                   static_cast<GLsizei>(luaL_checkinteger(L, 4)));
+        return 0;
+    }
+
+    int lua_newShader(lua_State *L) {
+        const char *vsSrc = luaL_checkstring(L, 1);
+        const char *fsSrc = luaL_checkstring(L, 2);
+        auto *shader = new Shader(vsSrc, fsSrc);
+        auto **udata = static_cast<Shader **>(lua_newuserdata(L, sizeof(Shader**)));
+        *udata = shader;
+        luaL_getmetatable(L, "Shader");
+        lua_setmetatable(L, -2);
+        return 1;
+    }
+
+    int lua_shader_gc(lua_State *L) {
+        auto **shader = static_cast<Shader **>(lua_touserdata(L, 1));
+        delete *shader;
+        return 0;
+    }
+
+    const luaL_Reg shader_meta[] =
+    {
+        {"_gc", lua_shader_gc},
+        // {0, 0},
+        {nullptr, nullptr},
+    };
+
+    void makeShader(lua_State* L) {
+        luaL_newmetatable(L, "Shader");
+        luaL_setfuncs(L, shader_meta, 0);
+        lua_pushstring(L, "__index");
+        lua_pushvalue(L, -2);
+        lua_rawset(L, -3);
+        lua_pop(L, 1);
+    }
     class Lua {
         lua_State *L;
-        void init() {
+        bool nextCall = true;
+
+        void init() const {
             lua_pushinteger(L, winW);
             lua_setglobal(L, "winW");
             lua_pushinteger(L, winH);
             lua_setglobal(L, "winH");
+
+            lua_pushcfunction(L, lua_glClearColor);
+            lua_setglobal(L, "glClearColor");
+            lua_pushcfunction(L, lua_glClear);
+            lua_setglobal(L, "glClear");
+            lua_pushcfunction(L, lua_glViewport);
+            lua_setglobal(L, "glViewport");
+            lua_pushcfunction(L, lua_newShader);
+            lua_setglobal(L, "newShader");
+
+            makeShader(L);
         }
+
     public:
         Lua() {
             L = luaL_newstate();
@@ -417,17 +484,23 @@ namespace {
             }
             if (ret) {
                 printf("%s\n", lua_tostring(L, -1));
+                nextCall = false;
             }
         }
+
         ~Lua() {
             lua_close(L);
         }
 
         void draw() {
+            if (!nextCall) {
+                return;
+            }
             lua_getglobal(L, "draw");
             int ret = lua_pcall(L, 0, 0, -2);
             if (ret) {
                 printf("%s\n", lua_tostring(L, -1));
+                nextCall = false;
             }
         }
     };
@@ -585,8 +658,6 @@ int main(int argc, char **argv) {
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         drawRectUV(bufferFont, shaderfont, textureFont);
         glDisable(GL_BLEND);
-        checkGLError();
-        SDL_GL_SwapWindow(window);
     };
     Audio audio;
     audio.open("data/MeetingTheStars.ogg");
@@ -603,8 +674,11 @@ int main(int argc, char **argv) {
                 done = 1;
             }
         }
-        draw();
+        lua.draw();
         audio.play();
+
+        checkGLError();
+        SDL_GL_SwapWindow(window);
     };
     SDL_DestroyWindow(window);
     delete gZip;
