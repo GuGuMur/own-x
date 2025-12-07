@@ -390,12 +390,39 @@ namespace {
         }
     };
 
+    Audio* gAudio;
+
     int lua_error_callback(lua_State *L) {
         const char *error = lua_tostring(L, 1);
         luaL_traceback(L, L, error, 0);
         return 1;
     }
 
+    int lua_ziploader(lua_State* L) {
+        std::string name = luaL_checkstring(L, 1);
+        for (size_t i = 0; i < name.size(); ++i) {
+            if (name[i] == '.') { // 不能用双引号：""自带\0，要用''
+                name[i] = '/';
+            }
+        }
+        name += ".lua";
+        size_t size;
+        void* p = gZip->open(name.c_str(), size);
+        if (p == nullptr) {
+            luaL_error(L, "%s not found!", name.c_str());
+            return 0;
+        }
+        lua_pushcfunction(L, lua_error_callback);
+        int ret = luaL_loadbuffer(L, static_cast<const char *>(p), size, name.c_str());
+        if (ret == 0) {
+            ret = lua_pcall(L, 0, 1, -2);
+        }
+        if (ret) {
+            printf("%s\n", lua_tostring(L, -1));
+        }
+        gZip->close(p);
+        return 1;
+    }
     int lua_glClearColor(lua_State *L) {
         glClearColor(static_cast<GLfloat>(luaL_checknumber(L, 1)),
                      static_cast<GLfloat>(luaL_checknumber(L, 2)),
@@ -417,58 +444,297 @@ namespace {
         return 0;
     }
 
+    int lua_glDrawArrays(lua_State *L) {
+        auto mode = static_cast<GLenum>(luaL_checkinteger(L, 1));
+        auto first = static_cast<GLint>(luaL_checkinteger(L, 2));
+        auto count = static_cast<GLsizei>(luaL_checkinteger(L, 3));
+        glDrawArrays(mode, first, count);
+        return 0;
+    }
+    int lua_glEnable(lua_State* L) {
+        auto cap = static_cast<GLenum>(luaL_checkinteger(L, 1));
+        glEnable(cap);
+        return 0;
+    }
+    int lua_glDisable(lua_State* L) {
+        auto cap = static_cast<GLenum>(luaL_checkinteger(L, 1));
+        glDisable(cap);
+        return 0;
+    }
+    int lua_glBlendFunc(lua_State* L) {
+        auto sfactor = static_cast<GLenum>(luaL_checkinteger(L, 1));
+        auto dfactor = static_cast<GLenum>(luaL_checkinteger(L, 2));
+        glBlendFunc(sfactor, dfactor);
+        return 0;
+    }
+    template<typename T>
+    void pushObject(lua_State *L, T *obj, const char *name) {
+        auto **udata = static_cast<T **>(lua_newuserdata(L, sizeof(T**)));
+        *udata = obj;
+        luaL_getmetatable(L, name);
+        lua_setmetatable(L, -2);
+    }
+
     int lua_newShader(lua_State *L) {
         const char *vsSrc = luaL_checkstring(L, 1);
         const char *fsSrc = luaL_checkstring(L, 2);
         auto *shader = new Shader(vsSrc, fsSrc);
-        auto **udata = static_cast<Shader **>(lua_newuserdata(L, sizeof(Shader**)));
-        *udata = shader;
-        luaL_getmetatable(L, "Shader");
-        lua_setmetatable(L, -2);
+        pushObject(L, shader, "Shader");
         return 1;
     }
 
-    int lua_shader_gc(lua_State *L) {
-        auto **shader = static_cast<Shader **>(lua_touserdata(L, 1));
+    int lua_newBuffer(lua_State *L) {
+        Buffer *buffer;
+        if (lua_istable(L, 1)) {
+            std::vector<float> point;
+            const size_t len = lua_rawlen(L, 1);
+            point.resize(len);
+            for (size_t i = 1; i <= len; ++i) {
+                lua_rawgeti(L, 1, i);
+
+                point[i - 1] = static_cast<float>(lua_tonumber(L, -1));
+                lua_pop(L, 1);
+            }
+            buffer = new Buffer(point);
+        } else {
+            const auto x = static_cast<float>(luaL_checknumber(L, 1));
+            const auto y = static_cast<float>(luaL_checknumber(L, 2));
+            const auto w = static_cast<float>(luaL_checknumber(L, 3));
+            const auto h = static_cast<float>(luaL_checknumber(L, 4));
+            const bool uv = lua_isnone(L, 5) ? true : lua_toboolean(L, 5);
+            buffer = new Buffer(x, y, w, h, uv);
+        }
+        pushObject(L, buffer, "Buffer");
+        return 1;
+    }
+
+    int lua_newTexture(lua_State *L) {
+        Texture* texture;
+        if (lua_gettop(L) == 1) {
+            const char *name = luaL_checkstring(L, 1);
+            texture = new Texture(name);
+
+        }else {
+            std::vector<unsigned char> bitmap;
+            size_t size;
+            const char* p = luaL_checklstring(L, 1, &size);
+            bitmap.resize(size);
+            memcpy(bitmap.data(), p, size);
+            const int w = static_cast<int>(luaL_checkinteger(L, 2));
+            const int h = static_cast<int>(luaL_checkinteger(L, 3));
+            texture = new Texture(bitmap, w, h);
+        }
+        pushObject(L, texture, "Texture");
+        return 1;
+    }
+
+    int lua_newFont(lua_State* L) {
+        const char* name = luaL_checkstring(L, 1);
+        auto* font = new Font(name);
+        pushObject(L, font, "Font");
+        return 1;
+    }
+
+    int lua_audioOpen(lua_State* L) {
+        const char* name = luaL_checkstring(L, 1);
+        int loop = lua_isnone(L, 2) ? 1 : luaL_checkinteger(L, 2);
+        int idx = gAudio->open(name, loop);
+        lua_pushinteger(L, idx);
+        return 1;
+
+    }
+
+    int lua_audioClose(lua_State* L) {
+            int idx = static_cast<int>(luaL_checkinteger(L, 1));
+        gAudio->close(idx);
+        return 0;
+    }
+
+    int lua_audioPause(lua_State* L) {
+        int pause = static_cast<int>(luaL_checkinteger(L, 1));
+        gAudio->pause(pause);
+        return 0;
+    }
+    template<typename T>
+    int lua_object_gc(lua_State *L) {
+        T **shader = static_cast<T **>(lua_touserdata(L, 1));
         delete *shader;
+        return 0;
+    }
+
+    int lua_shader_attrib(lua_State *L) {
+        auto **udata = static_cast<Shader **>(luaL_checkudata(L, 1, "Shader"));
+        const char *name = luaL_checkstring(L, 2);
+        const auto size = static_cast<GLint>(luaL_checkinteger(L, 3));
+        const auto type = static_cast<GLenum>(luaL_checkinteger(L, 4));
+        const auto stride = static_cast<GLsizei>(luaL_optinteger(L, 5, 0));
+        const void *pointer = lua_isnone(L, 6) ? nullptr : reinterpret_cast<void *>(lua_tointeger(L, 6));
+        (*udata)->attrib(name, size, type, stride, pointer);
+        return 0;
+    }
+
+    int lua_shader_setVec4(lua_State *L) {
+        auto **udata = static_cast<Shader **>(luaL_checkudata(L, 1, "Shader"));
+        const char *name = luaL_checkstring(L, 2);
+        const auto v0 = static_cast<float>(luaL_checknumber(L, 3));
+        const auto v1 = static_cast<float>(luaL_checknumber(L, 4));
+        const auto v2 = static_cast<float>(luaL_checknumber(L, 5));
+        const auto v3 = static_cast<float>(luaL_checknumber(L, 6));
+        (*udata)->setVec4(name, v0, v1, v2, v3);
+        return 0;
+    }
+
+    int lua_shader_setTexture(lua_State *L) {
+        auto **udata = static_cast<Shader **>(luaL_checkudata(L, 1, "Shader"));
+        const char *name = luaL_checkstring(L, 2);
+        const auto texture = static_cast<GLint>(luaL_checkinteger(L, 3));
+        (*udata)->setTexture(name, texture);
+        return 0;
+    }
+
+    int lua_shader_use(lua_State *L) {
+        auto **udata = static_cast<Shader **>(luaL_checkudata(L, 1, "Shader"));
+        (*udata)->use();
         return 0;
     }
 
     const luaL_Reg shader_meta[] =
     {
-        {"_gc", lua_shader_gc},
+        {"_gc", lua_object_gc<Shader>},
+        {"attrib", lua_shader_attrib},
+        {"setVec4", lua_shader_setVec4},
+        {"setTexture", lua_shader_setTexture},
+        {"use", lua_shader_use},
         // {0, 0},
         {nullptr, nullptr},
     };
 
-    void makeShader(lua_State* L) {
-        luaL_newmetatable(L, "Shader");
-        luaL_setfuncs(L, shader_meta, 0);
+    int lua_buffer_bind(lua_State *L) {
+        auto **udata = static_cast<Buffer **>(luaL_checkudata(L, 1, "Buffer"));
+        (*udata)->bind();
+        return 0;
+    };
+
+    int lua_buffer_unbind(lua_State *L) {
+        auto **udata = static_cast<Buffer **>(luaL_checkudata(L, 1, "Buffer"));
+        (*udata)->unbind();
+        return 0;
+    };
+    const luaL_Reg buffer_meta[] =
+    {
+        {"_gc", lua_object_gc<Buffer>},
+        // {0, 0},
+        {"bind", lua_buffer_bind},
+        {"unbind", lua_buffer_unbind},
+        {nullptr, nullptr},
+    };
+
+    int lua_texture_bind(lua_State *L) {
+        auto **udata = static_cast<Texture **>(luaL_checkudata(L, 1, "Texture"));
+        const auto texture = static_cast<GLint>(luaL_checkinteger(L, 2));
+        (*udata)->bind(texture);
+        return 0;
+    };
+
+    int lua_texture_unbind(lua_State *L) {
+        auto **udata = static_cast<Texture **>(luaL_checkudata(L, 1, "Texture"));
+        (*udata)->unbind();
+        return 0;
+    }
+
+    const luaL_Reg texture_meta[] ={
+        {"__gc", lua_object_gc<Texture>},
+        {"bind", lua_texture_bind},
+        {"unbind", lua_texture_unbind},
+        {nullptr, nullptr},
+    };
+
+    int lua_font_makeBitmap(lua_State* L) {
+        auto** udata = static_cast<Font**>(luaL_checkudata(L, 1, "Font"));
+        const auto code = static_cast<wchar_t>(luaL_checkinteger(L, 2));
+        const auto size = static_cast<float>(luaL_checknumber(L, 3));
+        std::vector<unsigned char> bitmap;
+        int x0, y0, w, h;
+        (*udata)->makeBitmap(code, size, bitmap, x0, y0, w, h);
+        lua_pushlstring(L, reinterpret_cast<const char*>(bitmap.data()), bitmap.size());
+        lua_pushinteger(L, x0);
+        lua_pushinteger(L, y0);
+        lua_pushinteger(L, w);
+        lua_pushinteger(L, h);
+        return 5;
+    }
+
+    const luaL_Reg font_meta[] = {
+        {"__gc", lua_object_gc<Font>},
+        {"makeBitmap", lua_font_makeBitmap},
+        {nullptr, nullptr},
+    };
+    void makeObject(lua_State *L, const char *name, const luaL_Reg *meta) {
+        luaL_newmetatable(L, name);
+        luaL_setfuncs(L, meta, 0);
         lua_pushstring(L, "__index");
         lua_pushvalue(L, -2);
         lua_rawset(L, -3);
         lua_pop(L, 1);
     }
+
     class Lua {
         lua_State *L;
         bool nextCall = true;
 
-        void init() const {
+        void init() {
             lua_pushinteger(L, winW);
             lua_setglobal(L, "winW");
             lua_pushinteger(L, winH);
             lua_setglobal(L, "winH");
 
+            mouseEvent(0, 0, 0, 0);
+            keyEvent(0, 0);
             lua_pushcfunction(L, lua_glClearColor);
             lua_setglobal(L, "glClearColor");
             lua_pushcfunction(L, lua_glClear);
             lua_setglobal(L, "glClear");
             lua_pushcfunction(L, lua_glViewport);
             lua_setglobal(L, "glViewport");
+            lua_pushcfunction(L, lua_glDrawArrays);
+            lua_setglobal(L, "glDrawArrays");
+            lua_pushcfunction(L, lua_glEnable);
+            lua_setglobal(L, "glEnable");
+            lua_pushcfunction(L, lua_glDisable);
+            lua_setglobal(L, "glDisable");
+            lua_pushcfunction(L, lua_glBlendFunc);
+            lua_setglobal(L, "glBlendFunc");
+
+
             lua_pushcfunction(L, lua_newShader);
             lua_setglobal(L, "newShader");
+            makeObject(L, "Shader", shader_meta);
 
-            makeShader(L);
+            lua_pushcfunction(L, lua_newBuffer);
+            lua_setglobal(L, "newBuffer");
+            makeObject(L, "Buffer", buffer_meta);
+
+            lua_pushcfunction(L, lua_newTexture);
+            lua_setglobal(L, "newTexture");
+            makeObject(L, "Texture", texture_meta);
+            lua_pushcfunction(L, lua_buffer_bind);
+            lua_setglobal(L, "buffer_bind");
+            lua_pushcfunction(L, lua_buffer_unbind);
+            lua_setglobal(L, "buffer_unbind");
+
+            lua_pushcfunction(L, lua_newFont);
+            lua_setglobal(L, "newFont");
+            makeObject(L, "Font", font_meta);
+            lua_pushcfunction(L, lua_font_makeBitmap);
+            lua_setglobal(L, "font_makeBitmap");
+
+            lua_pushcfunction(L, lua_audioOpen);
+            lua_setglobal(L, "audioOpen");
+            lua_pushcfunction(L, lua_audioClose);
+            lua_setglobal(L, "audioClose");
+            lua_pushcfunction(L, lua_audioPause);
+            lua_setglobal(L, "audioPause");
+
         }
 
     public:
@@ -477,8 +743,15 @@ namespace {
             luaL_openlibs(L);
 
             init();
+
+            lua_pushcfunction(L, lua_ziploader);
+            lua_setglobal(L, "ziploader");
             lua_pushcfunction(L, lua_error_callback);
-            int ret = luaL_loadstring(L, "require 'main'");
+            int ret = luaL_loadstring(
+                L,
+                "table.insert(package.searchers, function() return ziploader end)\n"
+                // "require 'data.main'");
+                "require 'main'");
             if (ret == 0) {
                 ret = lua_pcall(L, 0, 0, -2);
             }
@@ -503,7 +776,31 @@ namespace {
                 nextCall = false;
             }
         }
+
+        void mouseEvent(Uint32 event, Sint32 x, Sint32 y, Uint8 button) {
+            lua_pushinteger(L, event);
+            lua_setglobal(L, "MouseEvent");
+            lua_pushinteger(L, x);
+            lua_setglobal(L, "MouseX");
+            lua_pushinteger(L, y);
+            lua_setglobal(L, "MouseY");
+            lua_pushinteger(L, button);
+            lua_setglobal(L, "MouseButton");
+        };
+        void keyEvent(Uint32 event, SDL_Keycode code) {
+            lua_pushinteger(L, event);
+            lua_setglobal(L, "KeyEvent");
+            lua_pushinteger(L, code);
+            lua_setglobal(L, "KeyCode");
+        }
+        void clearEvents() {
+            lua_pushinteger(L, 0);
+            lua_setglobal(L, "MouseEvent");
+            lua_pushinteger(L, 0);
+            lua_setglobal(L, "KeyEvent");
     };
+};
+
 }
 
 int main(int argc, char **argv) {
@@ -659,10 +956,13 @@ int main(int argc, char **argv) {
         drawRectUV(bufferFont, shaderfont, textureFont);
         glDisable(GL_BLEND);
     };
-    Audio audio;
-    audio.open("data/MeetingTheStars.ogg");
-    audio.open("data/SadSoul.ogg");
+    // Audio audio;
+    // audio.open("data/MeetingTheStars.ogg");
+    // audio.open("data/SadSoul.ogg");
     // audio.pause(0);
+
+    gAudio = new Audio();
+
 
     Lua lua;
 
@@ -673,14 +973,28 @@ int main(int argc, char **argv) {
             if (event.type == SDL_QUIT) {
                 done = 1;
             }
+            else if (event.type == SDL_MOUSEBUTTONDOWN) {
+                lua.mouseEvent(event.type, event.button.x, event.button.y, event.button.button);
+            } else if (event.type == SDL_MOUSEBUTTONUP) {
+                lua.mouseEvent(event.type, event.button.x, event.button.y, event.button.button);
+            } else if (event.type == SDL_MOUSEMOTION) {
+                lua.mouseEvent(event.type, event.motion.x, event.motion.y, 0);
+            } else if (event.type == SDL_KEYDOWN) {
+                lua.keyEvent(event.type, event.key.keysym.sym);
+            } else if (event.type == SDL_KEYUP) {
+                lua.keyEvent(event.type, event.key.keysym.sym);
+            }
         }
         lua.draw();
-        audio.play();
+        lua.clearEvents();
+        // audio.play();
 
+        gAudio->play();
         checkGLError();
         SDL_GL_SwapWindow(window);
     };
     SDL_DestroyWindow(window);
+    delete gAudio;
     delete gZip;
     return 0;
 }

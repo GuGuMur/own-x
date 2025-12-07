@@ -26,6 +26,7 @@ target_link_libraries(cpp_2d_game_engine PRIVATE SDL2::SDL2)
 set(LUA_LIBRARY "/lib/x86_64-linux-gnu/liblua5.4.so")
 set(LUA_INCLUDE_DIR "/usr/include/lua5.4")
 
+target_link_libraries(cpp_2d_game_engine PRIVATE ${LUA_LIBRARY})
 target_include_directories(cpp_2d_game_engine PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src
         ${CMAKE_CURRENT_SOURCE_DIR}/include
