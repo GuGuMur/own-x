@@ -15,10 +15,25 @@ audioOpen("data/SadSoul.ogg");
 local vsSrc<const> =
 [[
     #version 330 core
+    uniform vec4 pos_size;
+    uniform vec4 rotation;
     attribute vec2 position;
     void main() {
-        float x = 2.0 * position.x / (640.0 - 1.0) - 1.0;
-        float y = 1.0 - 2.0 * position.y / (480.0 - 1.0);
+        float px = pos_size.x + position.x * pos_size.z;
+        float py = pos_size.y + position.y * pos_size.w;
+
+        float ox = rotation.x;
+        float oy = rotation.y;
+        float angle = rotation.z;
+
+        float theta = angle * 3.1415926 / 180.0;
+        float cos_theta = cos(theta);
+        float sin_theta = sin(theta);
+        float rx = -cos_theta * px + (-sin_theta) * py;
+        float ry = sin_theta * px + cos_theta * py;
+
+        float x = 2.0 * rx / (640.0 - 1.0) - 1.0;
+        float y = 1.0 - 2.0 * ry / (480.0 - 1.0);
         gl_Position = vec4(x, y, 0.0, 1.0);
     }
 ]]
@@ -66,7 +81,7 @@ local buffer = newBuffer(150, 50, 300, 300)
 
 local bufferPoint = newBuffer({50, 100})
 local bufferLine = newBuffer({0, 0, winW - 1, winH - 1})
-local bufferRect = newBuffer(150, 50, 350, 350, false)
+local bufferRect = newBuffer(-0.5, -0.5, 1, 1, false) -- 矩形中心为坐标
 
 local font = newFont("data/AlibabaPuHuiTi-3-55-Regular.ttf");
 local bitmap, x0, y0, w, h = font:makeBitmap(utf8.codepoint("啊"), 50);
@@ -103,11 +118,13 @@ local function drawLine(buffer, shader)
         glDrawArrays(GL_LINES, 0, 2);
         buffer:unbind();
 end
-local function drawRect(buffer, shader)
+local function drawRect(buffer, shader, x, y, w, h, ox, oy, angle)
         buffer:bind();
         shader:attrib("position", 2, GL_FLOAT);
         shader:use();
         shader:setVec4("color", 0.0, 0.0, 1.0, 1.0);
+        shader:setVec4("pos_size", x, y, w, h)
+        shader:setVec4("rotation", ox or 0.0, oy or 0.0, angle or 0.0, 0.0);
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
         buffer:unbind();
 end
@@ -130,15 +147,21 @@ function draw()
         glClearColor(0.5, 0.5, 0.5, 1.0);
         glClear(GL_COLOR_BUFFER_BIT);
         glViewport(0, 0, winW, winH);
-        drawPoint(bufferPoint, shader)
-        drawLine(bufferLine, shader)
-        drawRect(bufferRect, shader)
-        drawRectUV(buffer, shaderUV, texture)
+--         drawPoint(bufferPoint, shader)
+--         drawLine(bufferLine, shader)
+        drawRect(bufferRect, shader, 0, 0, 350, 350, 0, 0, 45)
 
-        glEnable(GL_BLEND);
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-        drawRectUV(bufferFont, shaderfont, textureFont);
-        glDisable(GL_BLEND);
+--         绘制正弦波
+--         for x = 0, 2 * math.pi, 0.1 do
+--             local y = (math.sin(x) * 0.5 + 0.5) * winH * 0.5 + 0.25 * winH
+--             drawRect(bufferRect, shader, (winW - 1) * x / (2 * math.pi), y, 5, 5)
+--         end
+--         drawRectUV(buffer, shaderUV, texture)
+--
+--         glEnable(GL_BLEND);
+--         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+--         drawRectUV(bufferFont, shaderfont, textureFont);
+--         glDisable(GL_BLEND);
 
 --         if MouseEvent ~= 0 then print(MouseEvent, MouseX, MouseY, MouseButton) end -- ~=为不等于
 --         if KeyEvent ~= 0 then print(KeyEvent, KeyCode) end
