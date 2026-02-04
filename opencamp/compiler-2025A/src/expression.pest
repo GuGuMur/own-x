@@ -1,0 +1,60 @@
+WHITESPACE = _{ " " | "\t" | NEWLINE }
+
+COMMENT = _{ LINE_COMMENT | BLOCK_COMMENT }
+LINE_COMMENT = _{ "//" ~ (!NEWLINE ~ ANY)* }
+BLOCK_COMMENT = _{ "/*" ~ (!"*/" ~ ANY)* ~ "*/" }
+
+CONST = { "const" }
+INT = { "int" }
+FLOAT = { "float" }
+VOID = { "void" }
+IF = { "if" }
+ELSE = { "else" }
+WHILE = { "while" }
+BREAK = { "break" }
+CONTINUE = { "continue" }
+RETURN = { "return" }
+
+PLUS = { "+" }
+MINUS = { "-" }
+MUL = { "*" }
+DIV = { "/" }
+MOD = { "%" }
+ASSIGN = { "=" }
+EQ = { "==" }
+NEQ = { "!=" }
+LT = { "<" }
+GT = { ">" }
+LE = { "<=" }
+GE = { ">=" }
+AND = { "&&" }
+OR = { "||" }
+NOT = { "!" }
+L_PAREN = { "(" }
+R_PAREN = { ")" }
+L_BRACKT = { "[" }
+R_BRACKT = { "]" }
+L_BRACE = { "{" }
+R_BRACE = { "}" }
+COMMA = { "," }
+SEMICOLON = { ";" }
+
+IDENT = @{ (ASCII_ALPHA | "_") ~ (ASCII_ALPHANUMERIC | "_")* }
+FLOAT_CONST = @{
+    ASCII_DIGIT+ ~ "." ~ ASCII_DIGIT*
+    | ASCII_DIGIT* ~ "." ~ ASCII_DIGIT+
+}
+INTEGER_CONST = @{
+    ("0x" | "0X") ~ ASCII_HEX_DIGIT+ 
+    | "0" ~ ASCII_OCT_DIGIT* | ASCII_DIGIT+
+}
+
+CompUnit = { SOI ~ (Token)* ~ EOI }
+Token = _{
+    CONST | INT | FLOAT | VOID | IF | ELSE | WHILE | BREAK | CONTINUE | RETURN |
+    EQ | NEQ | LE | GE | AND | OR |
+    PLUS | MINUS | MUL | DIV | MOD | ASSIGN | LT | GT | NOT |
+    L_PAREN | R_PAREN | L_BRACKT | R_BRACKT | L_BRACE | R_BRACE |
+    COMMA | SEMICOLON |
+    FLOAT_CONST | INTEGER_CONST | IDENT
+}

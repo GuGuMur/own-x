@@ -15,6 +15,6 @@ uv sync
 du -h --max-depth=0  # 7.9GB 乐
 source .venv/bin/activate
 uv run main.py
-du -h --max-depth=0 # 8.0GB
+du -h --max-depth=0 # 8.0GB mnist 64M？
 rm -rf .venv
 ```

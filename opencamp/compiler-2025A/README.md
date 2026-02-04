@@ -1,0 +1,1 @@
+https://opencamp.cn/rustcompiler/camp/2025fall

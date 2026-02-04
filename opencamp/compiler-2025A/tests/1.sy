@@ -1,0 +1,45 @@
+/* 全面测试文件：test_all.sy
+   涵盖范围：关键字、所有运算符、各种进制、数组与函数定义
+*/
+
+const int GLOBAL_CONST = 0xABC; // 十六进制常量测试 [cite: 26, 183]
+float global_var = 1.25;         // 浮点数测试 [cite: 25]
+
+// 函数定义与形参测试 [cite: 95, 106]
+void test_func(int arr[], float val) {
+    /* 块注释测试：
+       这里的内容应该被词法分析器忽略 [cite: 187]
+    */
+    if (val >= 0.5 && val <= 10.0) { // 关系与逻辑运算符 [cite: 105, 112]
+        return; // [cite: 170]
+    }
+}
+
+int main() {
+    // 1. 进制转换测试 (要求输出十进制) 
+    int dec = 42;      // 十进制
+    int oct = 052;     // 八进制 -> 42 [cite: 183, 312]
+    int hex = 0x2A;    // 十六进制 -> 42 [cite: 183, 312]
+
+    // 2. 数组与列表初始化 [cite: 23, 64]
+    int my_array[3] = {1, 2, 3}; 
+
+    // 3. 复杂运算符优先级测试 [cite: 80, 84]
+    int a = 1, b = 2;
+    a = -b + (a * 5) % 3; // 一元、二元运算符 [cite: 94, 99]
+    
+    // 4. 循环与分支关键字 [cite: 49, 50, 51]
+    while (a != b) {
+        if (a < b) {
+            a = a + 1;
+            continue; // [cite: 162]
+        } else {
+            break; // [cite: 157]
+        }
+    }
+
+    // 5. 边界字符与标识符测试 [cite: 182]
+    int _underscore_ident123 = 999; 
+
+    return 0; // 结束 [cite: 52]
+}

@@ -1,3 +1,6 @@
 [submodule "cpp-2d-game-engine/include/stb"]
 	path = cpp-2d-game-engine/include/stb
 	url = https://github.com/nothings/stb.git
+[submodule "geektime-craft-a-language/craft-a-language"]
+	path = geektime-craft-a-language/craft-a-language
+	url = https://gitee.com/richard-gong/craft-a-language.git
